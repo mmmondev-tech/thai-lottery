@@ -1,0 +1,8 @@
+{
+  "appId": "com.thailottery.checker",
+  "appName": "Thai Lottery Checker",
+  "webDir": "public",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}

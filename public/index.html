@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#b8860b">
+<title>Thai Lottery Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&family=Noto+Sans+Myanmar:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #ffffff; --ink: #1d1b16; --muted: #6b665c; --line: #e4dfd4;
+    --accent: #b8860b; --accent-ink: #fff; --win: #1f7a3f; --win-bg: #e8f5ec; --lose-bg: #f3f1ec; --err: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15140f; --card: #1f1d17; --ink: #f1ede4; --muted: #a39d90; --line: #36332a;
+            --accent: #e0b040; --accent-ink: #1d1b16; --win: #6fd394; --win-bg: #183424; --lose-bg: #26241d; --err: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  :root { --top-inset: var(--safe-area-inset-top, env(safe-area-inset-top, 0px)); --bottom-inset: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
+  /* Solid strip behind the phone's status bar so content doesn't scroll under it */
+  body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: var(--top-inset); background: var(--bg); z-index: 10; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 Sarabun, "Noto Sans Myanmar", system-ui, sans-serif; }
+  :lang(my) body, body:lang(my) { line-height: 1.9; }
+  main { max-width: 760px; margin: 0 auto; padding: calc(16px + var(--top-inset)) 16px calc(48px + var(--bottom-inset)); }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
+  h1 { margin: 0; font-size: 26px; line-height: 1.4; }
+  .langs { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; flex-shrink: 0; }
+  .langs button { margin: 0; width: auto; padding: 6px 10px; border-radius: 0; background: transparent; color: var(--ink); font-weight: 600; font-size: 14px; }
+  .langs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .sub { color: var(--muted); margin: 4px 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  label { font-weight: 600; display: block; margin-bottom: 6px; }
+  select, textarea, button { font: inherit; color: inherit; }
+  select, textarea { width: 100%; padding: 10px 12px; line-height: 1.9; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+  select { min-height: 52px; }
+  textarea { min-height: 96px; font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: 2px; resize: vertical; }
+  .row { display: grid; gap: 16px; }
+  .hint { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  #check { margin-top: 16px; width: 100%; padding: 12px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 17px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .langs button { border: 0; cursor: pointer; }
+  .result { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; margin-top: 8px; background: var(--lose-bg); }
+  .result.win { background: var(--win-bg); }
+  .num { font-family: ui-monospace, Menlo, monospace; font-size: 22px; letter-spacing: 3px; font-weight: 700; }
+  .prize { text-align: right; font-size: 14px; }
+  .win .prize strong { color: var(--win); font-size: 17px; }
+  .err { color: var(--err); }
+  .total { margin-top: 12px; font-weight: 700; color: var(--win); }
+  h2 { font-size: 18px; margin: 0 0 12px; }
+  .first { text-align: center; padding: 8px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+  .first .num { font-size: 40px; color: var(--accent); }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; text-align: center; margin-bottom: 16px; }
+  .grid3 .num { font-size: 20px; }
+  .small { color: var(--muted); font-size: 13px; }
+  details { border-top: 1px solid var(--line); padding: 10px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  .list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-family: ui-monospace, Menlo, monospace; }
+  a { color: var(--accent); }
+  @media (max-width: 480px) { .grid3 { grid-template-columns: 1fr; gap: 8px; } .first .num { font-size: 34px; } h1 { font-size: 22px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 data-t="title"></h1>
+    <div class="langs" id="langs" role="group" aria-label="Language"></div>
+  </header>
+  <p class="sub" data-t="subtitle"></p>
+
+  <section class="card">
+    <form id="form" class="row">
+      <div>
+        <label for="date" data-t="drawDate"></label>
+        <select id="date"></select>
+      </div>
+      <div>
+        <label for="tickets" data-t="tickets"></label>
+        <textarea id="tickets" inputmode="numeric" placeholder="123456&#10;654321"></textarea>
+        <div class="hint" data-t="ticketsHint"></div>
+      </div>
+    </form>
+    <button id="check" form="form" data-t="check"></button>
+    <div id="out"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="resultsTitle"></h2>
+    <div id="results" class="small"></div>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
