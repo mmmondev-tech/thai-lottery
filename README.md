@@ -11,10 +11,24 @@ Languages: Thai, English, Myanmar (switch at the top; translations in `public/i1
 
 - `public/` – the app (shared by web, Android and iOS)
   - `app.js` UI, `i18n.js` translations, `checker.js` prize matching, `api.js` data access
-- `server.js` – web version only: serves `public/` and proxies `glo.or.th` (it blocks browser calls)
+  - `scan.js` picks 6-digit ticket numbers out of text read from a photo
+- `api/` – Vercel serverless functions (`/api/latest`, `/api/result`, `/api/check`) that fetch from `glo.or.th`
+  (it blocks direct browser calls); shared code in `lib/glo.js`
+- `server.js` – local web server (`npm start`); serves `public/` and runs the same `api/` handlers
 - `android/`, `ios/` – native projects (Capacitor). The apps call GLO directly, no server needed.
 
+## Deploy the web version (Vercel)
+
+Import the GitHub repo in Vercel with Framework Preset **Other** and no build command.
+`vercel.json` serves `public/` and runs the functions in Singapore (`sin1`), close to the GLO servers.
+Every push to `main` redeploys.
+
 ## Mobile apps
+
+**Scan tickets from a photo** (apps only): *Take photo* / *Choose photo* reads every ticket
+number in the picture on the device and checks them all at once. Text recognition is native:
+Google ML Kit on Android (`android/.../TicketScannerPlugin.java`, model supplied by Google Play
+services) and Apple Vision on iOS (`TicketScannerPlugin` in `ios/App/App/AppDelegate.swift`).
 
 After changing anything in `public/`, copy it into the native projects:
 

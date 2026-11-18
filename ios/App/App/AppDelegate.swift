@@ -42,3 +42,57 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return config
     }
 }
+
+// MARK: - Ticket photo scanning
+// Kept in this file so it is compiled without editing the Xcode project file.
+
+import Vision
+
+/// Main screen. Registers the app's own TicketScanner plugin with Capacitor.
+/// (Main.storyboard uses this class instead of CAPBridgeViewController.)
+class MainViewController: CAPBridgeViewController {
+    override open func capacitorDidLoad() {
+        bridge?.registerPluginInstance(TicketScannerPlugin())
+    }
+}
+
+/// Reads text from a photo on the device with Apple Vision (offline).
+@objc(TicketScannerPlugin)
+public class TicketScannerPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "TicketScannerPlugin"
+    public let jsName = "TicketScanner"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "recognize", returnType: CAPPluginReturnPromise)
+    ]
+
+    @objc func recognize(_ call: CAPPluginCall) {
+        guard var image = call.getString("image"), !image.isEmpty else {
+            call.reject("Missing image")
+            return
+        }
+        if let comma = image.firstIndex(of: ",") { image = String(image[image.index(after: comma)...]) }
+        guard let data = Data(base64Encoded: image, options: .ignoreUnknownCharacters),
+              let cgImage = UIImage(data: data)?.cgImage else {
+            call.reject("Could not decode image")
+            return
+        }
+        let request = VNRecognizeTextRequest { request, error in
+            if let error = error {
+                call.reject("Text recognition failed: \(error.localizedDescription)")
+                return
+            }
+            let observations = request.results as? [VNRecognizedTextObservation] ?? []
+            let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+            call.resolve(["lines": lines])
+        }
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false // ticket numbers are not words
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+            } catch {
+                call.reject("Text recognition failed: \(error.localizedDescription)")
+            }
+        }
+    }
+}
