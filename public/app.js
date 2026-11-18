@@ -141,10 +141,30 @@ function renderCheck() {
        <div class="big">${baht(total)}</div><div class="small">${esc(t().stampDuty)}</div></div>` : '') +
     `<div class="out-head">${esc(t().yourResults)}</div>` +
     results.map((r, i) => r.wins.length
-      ? `<div class="tk win" style="animation-delay:${i * 40}ms">${digits(r.ticket)}
+      ? `<div class="tk win" style="animation-delay:${i * 40}ms"><span class="face" aria-hidden="true">🎉</span>${digits(r.ticket)}
            <div class="info">${r.wins.map((w) => esc(P[w.key])).join('<br>')}<div class="amt">${baht(r.total)}</div></div></div>`
-      : `<div class="tk" style="animation-delay:${i * 40}ms">${digits(r.ticket)}<div class="info">${esc(t().noPrize)}</div></div>`).join('');
-  return total;
+      : `<div class="tk" style="animation-delay:${i * 40}ms"><span class="face" aria-hidden="true">😢</span>${digits(r.ticket)}<div class="info">${esc(t().noPrize)}</div></div>`).join('');
+  return { total, winners: results.filter((r) => r.wins.length), count: results.length };
+}
+
+// Big happy / sad popup after a check, so the outcome is obvious at a glance.
+function showPopup({ total, winners, count }) {
+  const dlg = $('popup');
+  const win = total > 0;
+  dlg.className = 'popup ' + (win ? 'win' : 'lose');
+  $('popupEmoji').textContent = win ? '🥳' : '😢';
+  $('popupTitle').textContent = win ? t().congrats : t().noWinTitle;
+  $('popupAmt').textContent = win ? baht(total) : '';
+  $('popupSub').textContent = win
+    ? t().winSub.replace('{n}', fmtN(winners.length)).replace('{m}', fmtN(count)) + ' · ' + t().stampDuty
+    : t().noWinSub;
+  // The winning numbers themselves, biggest prize first (already sorted).
+  const P = t().prizes;
+  $('popupWins').innerHTML = winners.map((r) => `<li>${digits(r.ticket)}
+    <div class="pw-info">${r.wins.map((w) => esc(P[w.key])).join('<br>')}<b>${baht(r.total)}</b></div></li>`).join('');
+  $('popupOk').textContent = t().ok;
+  if (dlg.open) dlg.close();
+  dlg.showModal();
 }
 
 function renderScanStatus() {
@@ -199,11 +219,14 @@ async function runCheck() {
     lastCheck = { tickets: [...tickets] };
   } catch { lastCheck = { message: 'networkError' }; }
   $('check').disabled = false;
-  const total = renderCheck();
+  const outcome = renderCheck();
   renderResults();   // highlight the user's numbers in the prize lists
   renderTickets();
   $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  if (total) confetti();
+  if (outcome) {
+    showPopup(outcome);
+    if (outcome.total) confetti();
+  }
 }
 
 function clearAll() {
@@ -213,9 +236,13 @@ function clearAll() {
   renderTickets(); renderCheck(); renderScanStatus(); renderResults();
 }
 
-// ---------------------------------------------------------------- photo scanning (apps only)
-const scanner = window.Capacitor?.isPluginAvailable?.('TicketScanner') ? window.Capacitor.Plugins.TicketScanner : null;
-$('scan').hidden = !scanner;
+// ---------------------------------------------------------------- photo scanning
+// Apps use the phone's built-in recognizer; browsers fall back to Tesseract.js.
+const nativeScanner = window.Capacitor?.isPluginAvailable?.('TicketScanner') ? window.Capacitor.Plugins.TicketScanner : null;
+const scanner = nativeScanner ?? { recognize: async (opts) => (await import('./web-ocr.js')).webScanner.recognize(opts) };
+// Desktop (mouse, no camera capture): hide "Take photo", offer drag & drop / paste instead.
+const desktop = !nativeScanner && matchMedia('(pointer: fine)').matches;
+$('scan').classList.toggle('desktop', desktop);
 
 // Shrink big camera photos before sending them to the recognizer (faster, same accuracy).
 async function photoToDataUrl(file, maxSide = 2400) {
@@ -232,10 +259,15 @@ async function photoToDataUrl(file, maxSide = 2400) {
 }
 
 async function scanPhoto(file) {
-  if (!file) return;
+  if (!file || !file.type.startsWith('image/')) return;
   scanStatus = { key: 'scanning' }; renderScanStatus();
   try {
-    const { lines } = await scanner.recognize({ image: await photoToDataUrl(file) });
+    // Native apps get a shrunk JPEG (faster to pass over the bridge). The browser reader
+    // gets the original file untouched: re-compressing changes Tesseract's results.
+    const image = nativeScanner ? await photoToDataUrl(file) : URL.createObjectURL(file);
+    let lines;
+    try { ({ lines } = await scanner.recognize({ image })); }
+    finally { if (!nativeScanner) URL.revokeObjectURL(image); }
     const numbers = extractTicketNumbers(lines);
     if (!numbers.length) { scanStatus = { key: 'scanNone' }; renderScanStatus(); return; }
     addTickets(numbers);
@@ -264,11 +296,30 @@ $('chips').addEventListener('click', (e) => {
   saveTickets(); renderTickets();
 });
 $('clear').addEventListener('click', clearAll);
+// Tap outside the popup to close it.
+$('popup').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) e.currentTarget.close();
+});
 $('check').addEventListener('click', runCheck);
 $('date').addEventListener('change', () => loadDraw($('date').value));
 for (const id of ['photoCamera', 'photoPick']) {
   $(id).addEventListener('change', (e) => { scanPhoto(e.target.files[0]); e.target.value = ''; });
 }
+// Drag a photo onto the page, or paste one (Ctrl/Cmd+V), e.g. a screenshot.
+let dragDepth = 0;
+const dropZone = $('scan');
+addEventListener('dragenter', (e) => { if (e.dataTransfer?.types.includes('Files')) { dragDepth++; dropZone.classList.add('dragging'); } });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dropZone.classList.remove('dragging'); } });
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', (e) => {
+  e.preventDefault(); dragDepth = 0; dropZone.classList.remove('dragging');
+  scanPhoto([...(e.dataTransfer?.files ?? [])].find((f) => f.type.startsWith('image/')));
+});
+addEventListener('paste', (e) => {
+  const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'));
+  if (file) { e.preventDefault(); scanPhoto(file); }
+});
 
 // ---------------------------------------------------------------- start
 (async () => {
