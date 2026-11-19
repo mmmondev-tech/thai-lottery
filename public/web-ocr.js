@@ -79,8 +79,19 @@ export const webScanner = {
       lines[job.reading].push(...texts.map((t) => t.text));
     }
     onProgress({ stage: 'read', progress: 1 });
-    const votes = new Map();
-    for (const l of lines) for (const n of extractTicketNumbers(l)) votes.set(n, (votes.get(n) ?? 0) + 1);
-    return { lines: [...votes].filter(([, v]) => v >= 2).map(([n]) => n) };
+    return { lines: pickTicketNumbers(lines) };
   },
 };
+
+// Merge the readings: a number read by all 3 counts; one read by 2 counts unless it
+// looks like a piece of a longer code. Each ticket has a small orange code under the
+// date (e.g. "43 4311021 12"); readers sometimes return its tail plus the set number
+// ("1021" + "12" → 102112), and can do so twice. Real ticket numbers rarely share
+// their first 4 digits with such a 7+ digit code in the same photo.
+export function pickTicketNumbers(readings) {
+  const votes = new Map();
+  for (const l of readings) for (const n of extractTicketNumbers(l)) votes.set(n, (votes.get(n) ?? 0) + 1);
+  const codes = readings.flat().join(' ').match(/\d{7,}/g) ?? [];
+  const partOfCode = (n) => codes.some((c) => c.includes(n.slice(0, 4)));
+  return [...votes].filter(([n, v]) => v >= 3 || (v === 2 && !partOfCode(n))).map(([n]) => n);
+}

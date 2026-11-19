@@ -26,3 +26,13 @@ test('skips draw-date lines misread as numbers', () => {
 test('skips numbers ending in a nearby year (date lines glued to other digits)', () => {
   assert.deepEqual(extractTicketNumbers(['1n782569', '162026', '912560', '601681']), ['601681']);
 });
+test('merging readings drops a 2-vote number that is a piece of a longer code', async () => {
+  const { pickTicketNumbers } = await import('./public/web-ocr.js');
+  const readings = [
+    ['876444', '3 431102114 43 12', '3 102112'],
+    ['876444', '102112', '641869'],
+    ['876444', '641869'],
+  ];
+  // 876444: 3 votes. 641869: 2 votes, kept. 102112: 2 votes but "1021" is inside 431102114.
+  assert.deepEqual(pickTicketNumbers(readings), ['876444', '641869']);
+});
