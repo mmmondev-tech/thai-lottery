@@ -20,3 +20,9 @@ test('real ML Kit output from a photo of 3 tickets', () => {
 test('does not glue separate groups together', () => {
   assert.deepEqual(extractTicketNumbers(['12 3456', '43 12 99']), []);
 });
+test('skips draw-date lines misread as numbers', () => {
+  assert.deepEqual(extractTicketNumbers(['112569', 'g112569', '1 6 2569', '162569', '538340']), ['538340']);
+});
+test('skips numbers ending in a nearby year (date lines glued to other digits)', () => {
+  assert.deepEqual(extractTicketNumbers(['1n782569', '162026', '912560', '601681']), ['601681']);
+});

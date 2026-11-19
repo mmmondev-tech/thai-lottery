@@ -11,9 +11,19 @@ function fixToken(token) {
   return token.replace(/[OoDQIl|!SsBZz]/g, (c) => CONFUSABLE[c]);
 }
 
+// Every ticket prints its draw date, "1 พฤศจิกายน 2569" or "16 … 2569". When the Thai
+// month is lost or misread as a digit, that line looks like a ticket number: a 1, one
+// more digit, then the Buddhist year (e.g. 112569, 162569). Skip that shape — only
+// 0.05% of real ticket numbers have it, and those can still be typed in.
+const DATE_LINE = /^1\d25[5-9]\d$/;
+// Readers also glue the printed year (2569 / 2026) onto nearby digits, e.g. "1n782569"
+// or "16 NOVEMBER 2026" → 162026. Skip numbers ending in a year close to now: about
+// 0.25% of real ticket numbers, which can still be typed in.
+const YEAR_END = /(25[67]\d|202[5-8])$/;
+
 export function extractTicketNumbers(lines) {
   const found = [];
-  const add = (n) => { if (!found.includes(n)) found.push(n); };
+  const add = (n) => { if (!DATE_LINE.test(n) && !YEAR_END.test(n) && !found.includes(n)) found.push(n); };
   for (const raw of lines) {
     const line = raw.split(/\s+/).map(fixToken).join(' ');
     // "423224" as one group

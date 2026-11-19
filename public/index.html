@@ -164,11 +164,16 @@
   .first .digits { font-size: 30px; margin: 10px 0 12px; gap: 6px; }
   .first .digits span { background: #fff; color: var(--brand-2); border: 0; box-shadow: 0 3px 0 rgba(0,0,0,.22); }
   .first .digits.mine span { background: var(--gold-2); }
-  .first .near { font-size: 13px; color: rgba(255,255,255,.85); border-top: 1px dashed rgba(255,255,255,.35); padding-top: 10px; }
+  .first .near { border-top: 1px dashed rgba(255,255,255,.35); padding-top: 12px; }
+  .near-nums { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  .near-nums span { font: 700 22px/1.3 var(--display); letter-spacing: 2px; padding: 4px 14px; border-radius: 12px;
+                    background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3); color: #fff; }
+  .near-nums span.mine { background: var(--gold-2); color: var(--brand-2); border-color: transparent; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
   .stat { text-align: center; padding: 10px 6px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line); }
   .stat .lbl { font-size: 12px; color: var(--muted); line-height: 1.4; min-height: 2.8em; display: grid; place-items: center; }
-  .stat .vals { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 8px; font: 700 22px/1.4 var(--display); color: var(--brand-text); letter-spacing: 1px; }
+  .stat .vals { display: flex; flex-direction: column; align-items: center; gap: 2px; font: 700 20px/1.4 var(--display); color: var(--brand-text); letter-spacing: 1px; white-space: nowrap; }
+  .stat .vals i { font-style: normal; font-weight: 400; color: var(--muted); opacity: .55; }
   .stat .vals span.mine { color: var(--win); text-decoration: underline 3px; text-underline-offset: 4px; }
   .stat .amt { font-size: 12px; color: var(--muted); }
   details { border-top: 1px solid var(--line); }
@@ -222,12 +227,25 @@
   .pw-info b { display: block; font: 700 15px/1.4 var(--display); color: var(--win); }
   @media (max-width: 380px) { .popup-wins .digits { font-size: 15px; } }
   .popup .btn-check { margin-top: 20px; }
+
+  /* ---------- Loading overlay while a photo is read ---------- */
+  .loader { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px;
+            background: rgba(20, 6, 10, .55); backdrop-filter: blur(3px); }
+  .loader[hidden] { display: none; }
+  .loader-box { width: min(320px, 100%); background: var(--surface); color: var(--ink); border-radius: 24px; padding: 26px 22px; text-align: center; box-shadow: var(--shadow); }
+  .loader-spin { width: 46px; height: 46px; margin: 0 auto 14px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--gold); animation: spin .8s linear infinite; }
+  .loader-text { font-weight: 600; font-size: 15px; }
+  .loader-bar { height: 8px; margin-top: 14px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+  .loader-bar > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--gold-2), var(--gold)); transition: width .3s; }
+  .loader-bar.indeterminate > span { width: 35%; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+  .loader-pct { margin-top: 6px; font-size: 13px; color: var(--muted); min-height: 1.4em; }
   @keyframes popIn { from { transform: scale(.6); opacity: 0; } }
   @keyframes bounce { 0%, 100% { transform: translateY(0) rotate(0); } 30% { transform: translateY(-10px) rotate(-8deg); } 60% { transform: translateY(0) rotate(6deg); } }
   @keyframes sad { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-6deg) translateY(2px); } 75% { transform: rotate(6deg) translateY(2px); } }
 
   #confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
-  @media (max-width: 400px) { h1 { font-size: 18px; } .langs button { padding: 5px 8px; } .first .digits { font-size: 26px; } .stat .vals { font-size: 19px; } .tk .digits { font-size: 16px; } }
+  @media (max-width: 400px) { h1 { font-size: 18px; } .langs button { padding: 5px 8px; } .first .digits { font-size: 26px; } .stat .vals { font-size: 16px; letter-spacing: 0; } .near-nums span { font-size: 19px; padding: 4px 10px; letter-spacing: 1px; } .tk .digits { font-size: 16px; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -316,6 +334,14 @@
   <ul class="popup-wins" id="popupWins"></ul>
   <form method="dialog"><button class="btn-check" id="popupOk"></button></form>
 </dialog>
+<div id="loader" class="loader" role="status" aria-live="polite" hidden>
+  <div class="loader-box">
+    <div class="loader-spin" aria-hidden="true"></div>
+    <div class="loader-text" id="loaderText"></div>
+    <div class="loader-bar" id="loaderBar"><span></span></div>
+    <div class="loader-pct" id="loaderPct"></div>
+  </div>
+</div>
 <canvas id="confetti" hidden></canvas>
 <script type="module" src="app.js"></script>
 </body>

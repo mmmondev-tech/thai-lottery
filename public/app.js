@@ -99,17 +99,24 @@ function renderResults() {
   const first = nums('first')[0];
   const tail = { last3f: (n) => n.slice(0, 3), last3b: (n) => n.slice(3), last2: (n) => n.slice(4) };
   const isMine = (k, v) => [...mine].some((n) => tail[k](n) === v);
+  // Show where the digits sit in a 6-digit ticket: 101*** / ***938 / ****38,
+  // so two values side by side never read like one ticket number.
+  const stars = (n) => `<i aria-hidden="true">${'*'.repeat(n)}</i>`;
+  const masked = (k, v) => (k === 'last3f' ? esc(v) + stars(3) : stars(6 - v.length) + esc(v));
 
   let html = `
     <div class="first">
       <div class="lbl">${esc(P.first)} · <b>${baht(d.first.price)}</b></div>
       ${digits(first, mine.has(first) ? 'mine' : '')}
-      <div class="near">${esc(P.near1)} (${baht(d.near1.price)})<br><b>${nums('near1').map(esc).join(' · ')}</b></div>
+      <div class="near">
+        <div class="lbl">${esc(P.near1)} · <b>${baht(d.near1.price)}</b></div>
+        <div class="near-nums">${nums('near1').map((v) => `<span class="${mine.has(v) ? 'mine' : ''}">${esc(v)}</span>`).join('')}</div>
+      </div>
     </div>
     <div class="grid3">
       ${['last3f', 'last3b', 'last2'].map((k) => `<div class="stat">
         <div class="lbl">${esc(P[k])}</div>
-        <div class="vals">${nums(k).map((v) => `<span class="${isMine(k, v) ? 'mine' : ''}">${esc(v)}</span>`).join('')}</div>
+        <div class="vals">${nums(k).map((v) => `<span class="${isMine(k, v) ? 'mine' : ''}">${masked(k, v)}</span>`).join('')}</div>
         <div class="amt">${baht(d[k].price)}</div></div>`).join('')}
     </div>`;
   for (const k of ['second', 'third', 'fourth', 'fifth']) {
@@ -174,6 +181,18 @@ function renderScanStatus() {
   el.className = 'scan-status ' + ({ scanning: 'busy', scanFound: 'ok' }[scanStatus.key] ?? 'err');
 }
 
+// Full-screen loading overlay while a photo is read and checked.
+function showLoader(key, progress) {
+  const el = $('loader');
+  el.hidden = false;
+  $('loaderText').textContent = t()[key];
+  const bar = $('loaderBar');
+  bar.classList.toggle('indeterminate', progress == null);
+  bar.firstElementChild.style.width = progress == null ? '' : Math.round(progress * 100) + '%';
+  $('loaderPct').textContent = progress == null ? '' : fmtN(Math.round(progress * 100)) + '%';
+}
+function hideLoader() { $('loader').hidden = true; }
+
 // ---------------------------------------------------------------- confetti 🎉
 function confetti() {
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -206,7 +225,7 @@ async function loadDraw(date) {
   if ($('date').value === date) renderResults();
 }
 
-async function runCheck() {
+async function runCheck({ scroll = true } = {}) {
   takeFromEntry();
   if (!tickets.length) {
     lastCheck = { message: 'enterTicket' }; renderCheck(); renderTickets();
@@ -222,7 +241,7 @@ async function runCheck() {
   const outcome = renderCheck();
   renderResults();   // highlight the user's numbers in the prize lists
   renderTickets();
-  $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (scroll) $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (outcome) {
     showPopup(outcome);
     if (outcome.total) confetti();
@@ -237,45 +256,88 @@ function clearAll() {
 }
 
 // ---------------------------------------------------------------- photo scanning
-// Apps use the phone's built-in recognizer; browsers fall back to Tesseract.js.
+// Apps use the phone's built-in recognizer; browsers use Tesseract.js (free, runs in the
+// browser, loaded on first scan). Both are free — nothing is sent to a paid service.
 const nativeScanner = window.Capacitor?.isPluginAvailable?.('TicketScanner') ? window.Capacitor.Plugins.TicketScanner : null;
-const scanner = nativeScanner ?? { recognize: async (opts) => (await import('./web-ocr.js')).webScanner.recognize(opts) };
+const webScanner = { recognize: async (opts) => (await import('./web-ocr.js')).webScanner.recognize(opts) };
 // Desktop (mouse, no camera capture): hide "Take photo", offer drag & drop / paste instead.
 const desktop = !nativeScanner && matchMedia('(pointer: fine)').matches;
 $('scan').classList.toggle('desktop', desktop);
 
-// Shrink big camera photos before sending them to the recognizer (faster, same accuracy).
-async function photoToDataUrl(file, maxSide = 2400) {
+// A part of the photo (x, y, w, h in pixels) as a JPEG, shrunk if big (faster to
+// pass over the bridge, same accuracy).
+function cropToDataUrl(img, x, y, w, h, maxSide = 2400) {
+  const scale = Math.min(1, maxSide / Math.max(w, h));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
+  canvas.getContext('2d').drawImage(img, x, y, w, h, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+// Phone readers (ML Kit / Apple Vision) skip or split numbers when many tickets fill
+// one photo, especially where tickets overlap. So read the whole photo, then the photo
+// cut into 2×2 and 2×3 overlapping pieces (numbers look bigger), and merge. On a real
+// photo of 10 overlapping tickets: whole photo 7/10, merged 10/10, none wrong.
+// (More pieces than this started to invent numbers.)
+async function nativeRecognize(file, onProgress) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = url; });
-    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(img.naturalWidth * scale);
-    canvas.height = Math.round(img.naturalHeight * scale);
-    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.92);
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const parts = [[0, 0, W, H]];
+    for (const [cols, rows] of [[2, 2], [2, 3]]) {
+      const tw = W / cols, th = H / rows, ov = 0.15;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const x = Math.max(0, c * tw - tw * ov), y = Math.max(0, r * th - th * ov);
+        parts.push([x, y, Math.min(W - x, tw * (1 + 2 * ov)), Math.min(H - y, th * (1 + 2 * ov))]);
+      }
+    }
+    const lines = [];
+    for (const [i, part] of parts.entries()) {
+      onProgress(i / parts.length);
+      lines.push(...(await nativeScanner.recognize({ image: cropToDataUrl(img, ...part) })).lines);
+    }
+    return { lines };
   } finally { URL.revokeObjectURL(url); }
 }
 
+let scanning = false;
 async function scanPhoto(file) {
-  if (!file || !file.type.startsWith('image/')) return;
+  if (!file || !file.type.startsWith('image/') || scanning) return;
+  scanning = true;
   scanStatus = { key: 'scanning' }; renderScanStatus();
+  showLoader('scanning');
   try {
-    // Native apps get a shrunk JPEG (faster to pass over the bridge). The browser reader
-    // gets the original file untouched: re-compressing changes Tesseract's results.
-    const image = nativeScanner ? await photoToDataUrl(file) : URL.createObjectURL(file);
     let lines;
-    try { ({ lines } = await scanner.recognize({ image })); }
-    finally { if (!nativeScanner) URL.revokeObjectURL(image); }
+    if (nativeScanner) {
+      ({ lines } = await nativeRecognize(file, (p) => showLoader('scanning', p)));
+    } else {
+      // The browser reader gets the original file untouched: re-compressing changes Tesseract's results.
+      const image = URL.createObjectURL(file);
+      try {
+        ({ lines } = await webScanner.recognize({
+          image,
+          onProgress: (p) => (p.stage === 'load' ? showLoader('loadingReader') : showLoader('scanning', p.progress)),
+        }));
+      } finally { URL.revokeObjectURL(image); }
+    }
     const numbers = extractTicketNumbers(lines);
     if (!numbers.length) { scanStatus = { key: 'scanNone' }; renderScanStatus(); return; }
+    // A new photo replaces the previous list and results in one go.
+    tickets = []; lastCheck = null;
     addTickets(numbers);
+    renderCheck();
     scanStatus = { key: 'scanFound', n: numbers.length }; renderScanStatus();
-    runCheck(); // check all tickets at once
+    showLoader('checkingResults');
+    await runCheck({ scroll: false }); // check all tickets at once
+    $('chips').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     console.error(e);
     scanStatus = { key: 'scanFailed' }; renderScanStatus();
+  } finally {
+    hideLoader();
+    scanning = false;
   }
 }
 

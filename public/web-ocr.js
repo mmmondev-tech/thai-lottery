@@ -1,72 +1,86 @@
 // Photo text recognition for browsers (desktop & mobile web), where the native
-// ML Kit / Vision plugin isn't available. Uses Tesseract.js, loaded from the CDN
-// only the first time someone scans a photo. Same interface as the native plugin:
-// recognize({ image: dataUrl }) → { lines: string[] }.
-const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+// ML Kit / Vision plugin isn't available. Uses PaddleOCR (free, open source) running
+// in the browser via ONNX Runtime — the photo never leaves the device.
+//
+// Loaded only on the first scan:
+//   - vendor/paddle-ocr.js: @gutenye/ocr-browser 1.4.9 + OpenCV + ONNX Runtime (wasm),
+//     bundled with esbuild (see vendor/README.md)
+//   - the ONNX Runtime .wasm and the PaddleOCR models from the jsDelivr CDN (~30 MB,
+//     cached by the browser afterwards)
+//
+// Same interface as the native plugin: recognize({ image: url }) → { lines: string[] },
+// plus an optional onProgress({ stage: 'load' | 'read', progress }).
+import { extractTicketNumbers } from './scan.js';
 
-let workerPromise = null;
+const ORT_WASM = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/';
+const MODELS = 'https://cdn.jsdelivr.net/npm/@gutenye/ocr-models@1.4.2/assets/';
 
-function loadScript(src) {
-  return new Promise((ok, fail) => {
-    const s = document.createElement('script');
-    s.src = src; s.async = true; s.onload = ok; s.onerror = () => fail(new Error('Could not load ' + src));
-    document.head.append(s);
-  });
-}
-
-function getWorker() {
-  workerPromise ??= (async () => {
-    if (!window.Tesseract) await loadScript(TESSERACT_URL);
-    const worker = await window.Tesseract.createWorker('eng');
-    // Sparse text: find numbers scattered anywhere on the ticket(s), not paragraphs.
-    await worker.setParameters({ tessedit_pageseg_mode: window.Tesseract.PSM.SPARSE_TEXT });
-    return worker;
-  })().catch((e) => { workerPromise = null; throw e; }); // allow retry after a network error
-  return workerPromise;
+let ocrPromise = null;
+function getOcr() {
+  ocrPromise ??= (async () => {
+    const { Ocr, env } = await import('./vendor/paddle-ocr.js');
+    env.wasm.wasmPaths = ORT_WASM;
+    return Ocr.create({
+      models: {
+        detectionPath: MODELS + 'ch_PP-OCRv4_det_infer.onnx',
+        recognitionPath: MODELS + 'ch_PP-OCRv4_rec_infer.onnx',
+        dictionaryPath: MODELS + 'ppocr_keys_v1.txt',
+      },
+    });
+  })().catch((e) => { ocrPromise = null; throw e; }); // allow retry after a network error
+  return ocrPromise;
 }
 
 const loadImage = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
 
-function draw(img, longSide) {
-  const scale = longSide / Math.max(img.naturalWidth, img.naturalHeight);
+// Part of the photo (x, y, w, h), scaled so its long side is `longSide` px, as raw pixels.
+function crop(img, [x, y, w, h], longSide) {
+  const scale = longSide / Math.max(w, h);
   const c = document.createElement('canvas');
-  c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+  c.width = Math.round(w * scale); c.height = Math.round(h * scale);
   const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, c.width, c.height);
-  return c;
+  ctx.drawImage(img, x, y, w, h, 0, 0, c.width, c.height);
+  const { data, width, height } = ctx.getImageData(0, 0, c.width, c.height);
+  return { data, width, height };
 }
 
-// Ticket numbers are printed in black over a pink/orange wavy security pattern,
-// which confuses Tesseract. Keep only dark, uncoloured (black ink) pixels.
-function blackInkOnly(canvas) {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const px = ctx.getImageData(0, 0, canvas.width, canvas.height), d = px.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i], g = d[i + 1], b = d[i + 2];
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
-    d[i] = d[i + 1] = d[i + 2] = lum < 140 && chroma < 90 ? 0 : 255;
-  }
-  ctx.putImageData(px, 0, 0);
-  return canvas;
-}
-
-async function read(worker, canvas) {
-  const { data } = await worker.recognize(canvas);
-  return data.text.split('\n').map((l) => l.trim()).filter(Boolean);
-}
+// Ticket numbers are small in a photo of many tickets, so the photo is enlarged before
+// reading, and read three ways. A number counts only when at least two readings agree:
+// each reading on its own sometimes invents a number (from dates, serials, barcodes),
+// but rarely the same one twice. Tested on 5 photos of 10 tickets: 49/50 read, none wrong.
+const READINGS = [
+  { name: 'whole, large', parts: (W, H) => [[0, 0, W, H]], longSide: 2560 },
+  { name: 'whole, medium', parts: (W, H) => [[0, 0, W, H]], longSide: 1920 },
+  {
+    name: '4 pieces', longSide: 1420,
+    parts: (W, H) => {
+      const out = [], ov = 0.12, tw = W / 2, th = H / 2;
+      for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) {
+        const x = Math.max(0, c * tw - tw * ov), y = Math.max(0, r * th - th * ov);
+        out.push([x, y, Math.min(W - x, tw * (1 + 2 * ov)), Math.min(H - y, th * (1 + 2 * ov))]);
+      }
+      return out;
+    },
+  },
+];
 
 export const webScanner = {
-  // Two passes, merged: black-ink-only at ~2× (reads most tickets), plus the plain
-  // photo (catches a few the first pass misses). Tested on a real 10-ticket photo:
-  // 8/10 read, none wrong — vs 3/10 for the plain photo alone.
-  async recognize({ image }) {
-    const worker = await getWorker();
+  async recognize({ image, onProgress = () => {} }) {
+    onProgress({ stage: 'load' });
+    const ocr = await getOcr();
     const img = await loadImage(image);
-    const long = Math.max(img.naturalWidth, img.naturalHeight);
-    const inked = await read(worker, blackInkOnly(draw(img, 2560)));
-    const plain = await read(worker, draw(img, Math.min(long, 1280)));
-    return { lines: [...inked, ...plain] };
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const jobs = READINGS.flatMap((r, i) => r.parts(W, H).map((part) => ({ reading: i, part, longSide: r.longSide })));
+    const lines = READINGS.map(() => []);
+    for (const [n, job] of jobs.entries()) {
+      onProgress({ stage: 'read', progress: n / jobs.length });
+      const { texts } = await ocr.detect(crop(img, job.part, job.longSide));
+      lines[job.reading].push(...texts.map((t) => t.text));
+    }
+    onProgress({ stage: 'read', progress: 1 });
+    const votes = new Map();
+    for (const l of lines) for (const n of extractTicketNumbers(l)) votes.set(n, (votes.get(n) ?? 0) + 1);
+    return { lines: [...votes].filter(([, v]) => v >= 2).map(([n]) => n) };
   },
 };

@@ -3,5 +3,22 @@
   "framework": null,
   "buildCommand": "",
   "outputDirectory": "public",
-  "regions": ["sin1"]
+  "regions": [
+    "sin1"
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "credentialless"
+        }
+      ]
+    }
+  ]
 }

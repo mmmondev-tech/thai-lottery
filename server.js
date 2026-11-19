@@ -41,7 +41,14 @@ http
     if (file.startsWith('..')) { res.writeHead(400); return res.end('Bad path'); }
     const body = await readFile(join(PUBLIC, file)).catch(() => null);
     if (!body) { res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': (MIME[extname(file)] ?? 'application/octet-stream') + '; charset=utf-8' });
+    // no-cache: the browser re-checks each file, so edits show up on a normal reload.
+    // COOP/COEP: lets the photo reader use several CPU cores (same headers in vercel.json).
+    res.writeHead(200, {
+      'Content-Type': (MIME[extname(file)] ?? 'application/octet-stream') + '; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    });
     res.end(body);
   })
   .listen(PORT, () => console.log(`Thai Lottery Checker → http://localhost:${PORT}`));
