@@ -71,7 +71,6 @@
   .count { font-size: 12px; font-weight: 700; color: var(--brand-text); background: color-mix(in srgb, var(--brand) 14%, transparent);
            padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
   .count:empty { display: none; }
-  .spacer { flex: 1; }
   .btn-clear { display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--err) 30%, var(--line)); background: var(--surface-2);
                color: var(--err); font-size: 13px; font-weight: 700; padding: 6px 12px; border-radius: 999px; white-space: nowrap; flex: none; }
   .btn-clear svg { width: 15px; height: 15px; }
@@ -84,9 +83,8 @@
   .entry input:focus { border-color: var(--brand); }
   .entry input.shake { animation: shake .35s; border-color: var(--err); }
   @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
-  .btn-add { flex: none; display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 14px; padding: 0 16px;
-             background: var(--ink); color: var(--bg); font-weight: 700; }
-  .btn-add svg { width: 18px; height: 18px; }
+  .entry .btn-clear { border-radius: 14px; padding: 0 16px; font-size: 14px; border: 0;
+                     background: linear-gradient(135deg, var(--gold-2), var(--gold)); color: var(--gold-ink); }
   .hint { color: var(--muted); font-size: 13px; margin-top: 6px; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
@@ -277,18 +275,13 @@
     <div class="card-head">
       <h2 data-t="tickets"></h2>
       <span class="count" id="count"></span>
-      <span class="spacer"></span>
-      <button type="button" class="btn-clear" id="clear">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
-        <span data-t="clear"></span>
-      </button>
     </div>
 
     <form class="entry" id="entryForm" autocomplete="off">
       <input id="entry" inputmode="numeric" enterkeyhint="done" aria-describedby="entryHint">
-      <button class="btn-add" type="submit">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        <span data-t="add"></span>
+      <button type="button" class="btn-clear" id="clear">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+        <span data-t="clear"></span>
       </button>
     </form>
     <div class="hint" id="entryHint" data-t="ticketsHint"></div>
